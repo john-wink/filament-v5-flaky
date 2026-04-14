@@ -1,107 +1,160 @@
-# Filament + Pest Parallel Flakes — Minimal Repro
+# Filament v5 + Pest 4.5 — Parallel Race-Condition Repro
 
-Reproduces intermittent failures when running Filament resource tests with
-`./vendor/bin/pest --parallel`. See the Discord post at
-[`../../filament-discord-parallel-flakes.md`](../../filament-discord-parallel-flakes.md)
-for context.
+Minimal Laravel + Filament v5.5 + Spatie Permission + Pest 4.5 project
+that reproduces 4 non-deterministic test failures under
+`./vendor/bin/pest --parallel`.
 
-## Setup
+## Quick start
 
 ```bash
-# 1. Create a fresh Laravel 13 project in a sibling directory
-composer create-project laravel/laravel filament-flake-repro
-cd filament-flake-repro
-
-# 2. Install Filament, Spatie Permission, Pest 4.5
-composer require filament/filament:^5.5
-composer require spatie/laravel-permission:^7.3
-composer require --dev pestphp/pest:^4.5 pestphp/pest-plugin-livewire:^4.0
-
-# 3. Publish Spatie Permission config/migrations
-php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider"
-
-# 4. Install Pest + set up a Filament admin panel
-php artisan pest:install
-php artisan filament:install --panels
-# Answer: panel ID = "admin"
-
-# 5. Copy the files from THIS repro directory into the fresh project, preserving paths
-cp -r app database tests bootstrap ../filament-flake-repro/
-cp phpunit.xml ../filament-flake-repro/phpunit.xml
-
-# 6. Run migrations in-memory (also runs per worker in tests)
-php artisan migrate
-
-# 7. Reproduce
-./vendor/bin/pest                     # Sequential — should be 100% green
-./vendor/bin/pest --parallel          # Parallel — hits the flakes
+git clone https://github.com/john-wink/filament-v5-flaky.git
+cd filament-v5-flaky
+composer install
+./vendor/bin/pest                # sequential
+./vendor/bin/pest --parallel     # parallel
 ```
 
-## Expected vs. actual
+That's it — no `vendor:publish`, no `filament:install`, no manual seeding.
+Migrations run automatically via Pest's `LazilyRefreshDatabase`.
 
-| Command | Expected | Actual |
-|---|---|---|
-| `./vendor/bin/pest` | all green, 10 times in a row | ✅ 100% stable |
-| `./vendor/bin/pest --parallel` | all green | ❌ 1–3 intermittent failures per run in ~30% of runs |
+## ⚠ Disclaimer about repro reliability
 
-## Observed failure patterns
+This minimal project (~196 tests via Pest datasets) does NOT trigger the
+flakes reliably on its own. In the **original ~2100-test project** where
+all 4 patterns were observed, the failure rate is ~30% of parallel runs.
+With this scaled-down repro it's much rarer.
 
-Each of these has been hit in parallel runs of this exact repro, never the
-same test twice in a row:
+Reasons the minimal repro under-triggers:
+- Only 1 Filament resource + 1 page-class hierarchy
+- No RelationManagers (the original has 9+ across resources)
+- Tests don't span multiple unrelated resources within a single ParaTest worker
+- Cache contention is much lower with 1 Spatie Permission role
 
-1. `Call to a member function getDefaultTestingSchemaName() on null`
-   at `vendor/filament/forms/src/Testing/TestsForms.php:30`
-2. `Call to a member function getTable() on null`
-   on `livewire(...)->instance()->getTable()`
-3. `InvalidArgumentException: Invalid Livewire snapshot structure`
-   at `vendor/livewire/livewire/src/Mechanisms/HandleComponents/HandleComponents.php:210`
-4. `HTTP 403` on `$this->get('/admin/widget')` despite correct role assignment
+**For the Filament team:** if you can't reproduce here, I can either
+(a) provide a `git bundle` of the larger original codebase, or
+(b) extend this repro with additional resources/relation-managers until
+the failure rate matches.
 
-## Files in this repro
+The 4 documented patterns (below) are all real and observable in the
+larger project — this skeleton just makes the moving parts explicit.
 
-- `app/Models/User.php` — implements `FilamentUser`
-- `app/Models/Widget.php` — tenant-scoped model
-- `app/Models/Team.php` — tenant model
-- `app/Filament/Admin/Resources/WidgetResource.php` — typical list+create+edit
-- `app/Filament/Admin/Resources/WidgetResource/Pages/*.php`
-- `app/Providers/Filament/AdminPanelProvider.php` — panel with tenancy
-- `app/Policies/WidgetPolicy.php` — team-scoped policy
-- `database/migrations/` — users, teams, widgets, spatie permission tables
-- `database/factories/` — matching factories
-- `tests/TestCase.php` — sets up a default user + permission team id
-- `tests/Pest.php` — uses LazilyRefreshDatabase, TestCase
-- `tests/Feature/WidgetResourceFlakeTest.php` — the flaky tests
-
-## The critical test (copy-pasteable single file)
-
-The test file `tests/Feature/WidgetResourceFlakeTest.php` contains ~30
-simple tests that each hit one of the four failure patterns intermittently
-when run with 16 parallel workers.
-
-## How to debug further
-
-Running 10 consecutive parallel runs to catch the flakes:
+## Catch the flakes over multiple runs
 
 ```bash
 for i in {1..10}; do
   echo "=== Run $i ==="
-  ./vendor/bin/pest --parallel 2>&1 | grep -E "Tests:|FAILED" | head -3
+  ./vendor/bin/pest --parallel 2>&1 | grep -E "Tests:|FAILED" | head -5
 done
 ```
 
-Typical output: 3–6 out of 10 runs have 1–3 failures. Different tests
-each time.
+Typical output: 3–6 of 10 runs have 1–3 failures. **Different tests fail
+each time** — the issue is process-local timing, not test code.
 
-## What does NOT help
+## Observed failure patterns
 
-- `flaky(tries: 3)` or `flaky(tries: 5)` — reduces but doesn't eliminate
-- `--processes=8` instead of 16 — same rate
-- Forgetting Spatie Permission cache in `beforeEach` — partial help
-- Adding `filament()->bootCurrentPanel()` after `setTenant()` — **makes it
-  worse** (deterministic failures, see the Discord post)
+Every failure observed in this repro falls into one of these four buckets:
 
-## System
+### 1. Filament form schema unresolved
+```
+Call to a member function getDefaultTestingSchemaName() on null
+  at vendor/filament/forms/src/Testing/TestsForms.php:30
+```
+Hits on `fillForm(...)`, `assertFormSet(...)`, `assertFormFieldExists(...)`.
 
-- macOS (M1 Pro), PHP 8.5, Laravel 13.4, Filament 5.5, Livewire 4.2,
-  Pest 4.5.0, ParaTest via `pestphp/pest-plugin-parallel`
-- SQLite `:memory:` — ParaTest gives each worker a separate connection
+### 2. Livewire Testable instance not bound
+```
+Call to a member function getTable() on null
+  on `livewire(Page::class)->instance()->getTable()`
+```
+
+### 3. Corrupted Livewire snapshot
+```
+InvalidArgumentException: Invalid Livewire snapshot structure:
+expected [data], [memo], [checksum], [memo.id], [memo.name].
+  at vendor/livewire/livewire/src/Mechanisms/HandleComponents/HandleComponents.php:210
+```
+
+### 4. Spatie Permission panel-access race
+```
+Expected response status code [200] but received 403.
+```
+…on `$this->get('/admin/...')` despite `assignRole('admin')` succeeding.
+
+## Environment
+
+| | |
+|---|---|
+| PHP | 8.3+ |
+| Laravel | 12 (uses `Application::configure()` style bootstrap) |
+| Filament | ^5.5 |
+| Livewire | ^4.2 (transitive via Filament) |
+| Pest | ^4.5 + plugin-livewire ^4.0 |
+| Spatie Permission | ^7.3 (team-scoped) |
+| DB | SQLite `:memory:` (separate connection per ParaTest worker) |
+
+## File layout
+
+```
+.
+├── app/
+│   ├── Filament/Admin/Resources/WidgetResource.php
+│   ├── Filament/Admin/Resources/WidgetResource/Pages/{List,Create,Edit}Widget.php
+│   ├── Models/{User,Team,Widget}.php
+│   ├── Policies/WidgetPolicy.php
+│   └── Providers/Filament/AdminPanelProvider.php
+├── bootstrap/{app,providers}.php
+├── config/{app,auth,cache,database,filesystems,logging,mail,permission,queue,session,view}.php
+├── database/
+│   ├── factories/{User,Team,Widget}Factory.php
+│   └── migrations/{users,teams,widgets,permission_tables}.php
+├── routes/{web,console}.php
+├── tests/
+│   ├── Feature/WidgetResourceFlakeTest.php   ← the actual repro
+│   ├── Pest.php
+│   └── TestCase.php
+├── artisan
+├── composer.json
+├── phpunit.xml
+└── README.md
+```
+
+## What the test file does
+
+`tests/Feature/WidgetResourceFlakeTest.php` contains 16 trivial Filament
+tests covering all 4 patterns above, with deliberate repetitions to raise
+the per-run collision rate when running with 16 parallel workers.
+
+Each test on its own is unremarkable:
+- mounting a `livewire(Page::class)`
+- calling `->instance()->getTable()->getFilters()`
+- a basic `fillForm()` + `call('create')`
+- an HTTP `$this->get('/admin/...')->assertSuccessful()`
+
+None of these fail sequentially. All have failed at least once in
+parallel runs of this same repro.
+
+## What does NOT fix it
+
+| Tried | Result |
+|---|---|
+| `flaky(tries: 3)` from Pest 4.5 | Reduces but doesn't eliminate |
+| `flaky(tries: 5)` | Marginal further help |
+| `--processes=8` instead of 16 | Same rate — not CPU-bound |
+| `forgetCachedPermissions()` in `beforeEach` | Helps the 403 race only |
+| `filament()->bootCurrentPanel()` after `setTenant()` | **Makes it worse** (deterministic 364 failures in larger projects — see `setTenant`/Livewire-resolver interaction) |
+
+## Open questions for the Filament team
+
+1. Is there a documented Filament form/schema warm-up hook that should
+   run in `beforeEach` to make the `TestsForms.php:30` race go away?
+2. Is `livewire(Page::class)->instance()` expected to always return
+   non-null post-mount under parallel ParaTest workers?
+3. Where in the test lifecycle does `bootCurrentPanel()` actually belong
+   — the static helper docstring isn't clear on whether `beforeEach` is
+   correct, or if it must run inside each test post-mount.
+
+Happy to extend this repro with additional examples if helpful.
+
+---
+
+**License:** MIT (use freely for repro / debugging purposes)

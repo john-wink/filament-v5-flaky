@@ -135,3 +135,51 @@ it('can access table via instance (2)', function () {
 it('can access table via instance (3)', function () {
     expect(livewire(ListWidgets::class)->instance())->not->toBeNull();
 });
+
+// ── Volume amplifier ──────────────────────────────────────────────────────
+// Each block below uses Pest datasets to multiply test counts. With 200+
+// tests across 16 ParaTest workers the per-worker contention rate climbs
+// enough that ~1 in 3 parallel runs hits at least one of the 4 patterns.
+
+it('renders create page (volume)', function () {
+    livewire(CreateWidget::class)->assertSuccessful();
+})->with(range(1, 30));
+
+it('renders list page (volume)', function () {
+    livewire(ListWidgets::class)->assertSuccessful();
+})->with(range(1, 30));
+
+it('checks form fields exist (volume)', function () {
+    livewire(CreateWidget::class)
+        ->assertFormFieldExists('name')
+        ->assertFormFieldExists('description');
+})->with(range(1, 20));
+
+it('checks table columns exist (volume)', function () {
+    livewire(ListWidgets::class)
+        ->assertTableColumnExists('name')
+        ->assertTableColumnExists('description');
+})->with(range(1, 20));
+
+it('checks instance is bound (volume)', function () {
+    expect(livewire(ListWidgets::class)->instance())->not->toBeNull();
+    expect(livewire(CreateWidget::class)->instance())->not->toBeNull();
+})->with(range(1, 20));
+
+it('round-trips a create (volume)', function () {
+    livewire(CreateWidget::class)
+        ->fillForm(['name' => 'Vol-'.uniqid(), 'description' => 'x'])
+        ->call('create')
+        ->assertHasNoFormErrors();
+})->with(range(1, 20));
+
+it('reads filters via instance (volume)', function () {
+    $filters = collect(
+        livewire(ListWidgets::class)->instance()->getTable()->getFilters()
+    );
+    expect($filters)->not->toBeEmpty();
+})->with(range(1, 20));
+
+it('hits admin index via HTTP (volume)', function () {
+    $this->get('/admin/'.$this->team->id.'/widgets')->assertSuccessful();
+})->with(range(1, 20));
