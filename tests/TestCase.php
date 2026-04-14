@@ -24,14 +24,17 @@ abstract class TestCase extends BaseTestCase
         $this->admin = User::factory()->create();
         $this->admin->teams()->attach($this->team);
 
-        // Team-scoped Spatie Permission setup
+        // Team-scoped Spatie Permission setup — assign all roles so the user
+        // can access all 3 panels (admin / store / support).
         app(PermissionRegistrar::class)->setPermissionsTeamId($this->team->id);
-        $role = Role::firstOrCreate([
-            'name' => 'admin',
-            'team_id' => $this->team->id,
-            'guard_name' => 'web',
-        ]);
-        $this->admin->assignRole($role);
+        foreach (['admin', 'manager', 'support'] as $roleName) {
+            $role = Role::firstOrCreate([
+                'name' => $roleName,
+                'team_id' => $this->team->id,
+                'guard_name' => 'web',
+            ]);
+            $this->admin->assignRole($role);
+        }
 
         $this->actingAs($this->admin->fresh());
 

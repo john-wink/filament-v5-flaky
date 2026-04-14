@@ -52,6 +52,13 @@ class WidgetResource extends Resource
             ]);
     }
 
+    public static function getRelations(): array
+    {
+        return [
+            WidgetResource\RelationManagers\TagsRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [

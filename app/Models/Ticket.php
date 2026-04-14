@@ -7,15 +7,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Widget extends Model
+class Ticket extends Model
 {
     use HasFactory;
-    use SoftDeletes;
 
-    protected $fillable = ['name', 'description', 'team_id', 'user_id'];
+    protected $fillable = ['subject', 'body', 'status', 'team_id', 'user_id'];
 
     public function team(): BelongsTo
     {
@@ -25,10 +22,5 @@ class Widget extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
-    }
-
-    public function tags(): BelongsToMany
-    {
-        return $this->belongsToMany(Tag::class);
     }
 }

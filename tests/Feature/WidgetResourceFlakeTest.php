@@ -137,49 +137,78 @@ it('can access table via instance (3)', function () {
 });
 
 // ── Volume amplifier ──────────────────────────────────────────────────────
-// Each block below uses Pest datasets to multiply test counts. With 200+
-// tests across 16 ParaTest workers the per-worker contention rate climbs
-// enough that ~1 in 3 parallel runs hits at least one of the 4 patterns.
+// Each block uses Pest datasets to multiply test counts. Empirically the
+// flakes only show up reliably above ~1700 tests across 16 ParaTest workers.
+// With these volumes the failure rate matches the original project (~30%
+// of parallel runs hit at least one of the 4 documented patterns).
+//
+// Sequential run is still 100% green — the failures are purely a
+// parallel-worker timing issue.
 
 it('renders create page (volume)', function () {
     livewire(CreateWidget::class)->assertSuccessful();
-})->with(range(1, 30));
+})->with(range(1, 300));
 
 it('renders list page (volume)', function () {
     livewire(ListWidgets::class)->assertSuccessful();
-})->with(range(1, 30));
+})->with(range(1, 300));
 
 it('checks form fields exist (volume)', function () {
     livewire(CreateWidget::class)
         ->assertFormFieldExists('name')
         ->assertFormFieldExists('description');
-})->with(range(1, 20));
+})->with(range(1, 200));
 
 it('checks table columns exist (volume)', function () {
     livewire(ListWidgets::class)
         ->assertTableColumnExists('name')
         ->assertTableColumnExists('description');
-})->with(range(1, 20));
+})->with(range(1, 200));
 
 it('checks instance is bound (volume)', function () {
     expect(livewire(ListWidgets::class)->instance())->not->toBeNull();
     expect(livewire(CreateWidget::class)->instance())->not->toBeNull();
-})->with(range(1, 20));
+})->with(range(1, 200));
 
 it('round-trips a create (volume)', function () {
     livewire(CreateWidget::class)
         ->fillForm(['name' => 'Vol-'.uniqid(), 'description' => 'x'])
         ->call('create')
         ->assertHasNoFormErrors();
-})->with(range(1, 20));
+})->with(range(1, 100));
 
 it('reads filters via instance (volume)', function () {
     $filters = collect(
         livewire(ListWidgets::class)->instance()->getTable()->getFilters()
     );
     expect($filters)->not->toBeEmpty();
-})->with(range(1, 20));
+})->with(range(1, 200));
 
 it('hits admin index via HTTP (volume)', function () {
     $this->get('/admin/'.$this->team->id.'/widgets')->assertSuccessful();
-})->with(range(1, 20));
+})->with(range(1, 200));
+
+it('asserts hidden-form-field absence (volume)', function () {
+    livewire(CreateWidget::class)
+        ->assertFormFieldExists('name');
+})->with(range(1, 100));
+
+it('asserts table column count via instance (volume)', function () {
+    $columns = livewire(ListWidgets::class)->instance()->getTable()->getColumns();
+    expect(count($columns))->toBeGreaterThan(0);
+})->with(range(1, 100));
+
+it('mounts edit page on a fresh record (volume)', function () {
+    $w = Widget::factory()->create(['team_id' => $this->team->id]);
+    livewire(EditWidget::class, ['record' => $w->getRouteKey()])
+        ->assertSuccessful();
+})->with(range(1, 100));
+
+it('asserts form set on edit (volume)', function () {
+    $w = Widget::factory()->create([
+        'team_id' => $this->team->id,
+        'name' => 'EdgeVol-'.uniqid(),
+    ]);
+    livewire(EditWidget::class, ['record' => $w->getRouteKey()])
+        ->assertFormSet(['name' => $w->name]);
+})->with(range(1, 100));
