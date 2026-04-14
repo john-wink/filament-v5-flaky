@@ -140,8 +140,65 @@ parallel runs of this same repro.
 | `flaky(tries: 3)` from Pest 4.5 | Reduces but doesn't eliminate |
 | `flaky(tries: 5)` | Marginal further help |
 | `--processes=8` instead of 16 | Same rate — not CPU-bound |
-| `forgetCachedPermissions()` in `beforeEach` | Helps the 403 race only |
 | `filament()->bootCurrentPanel()` after `setTenant()` | **Makes it worse** (deterministic 364 failures in larger projects — see `setTenant`/Livewire-resolver interaction) |
+
+## What partially helps (real root-cause mitigations)
+
+These are applied in this repro's `tests/bootstrap.php` and `tests/TestCase.php`.
+In the real ~2100-test project they reduce ~17 failures/run to ~1–3 sporadic
+failures/run — meaningful but not 100%.
+
+### 1. Per-worker compiled-blade + service-cache paths
+
+By default ParaTest workers all share `storage/framework/views/` and
+`bootstrap/cache/{services,packages}.php`. When two workers write the
+same compiled-blade file simultaneously, one reads partial bytes →
+`Invalid Livewire snapshot structure`.
+
+Fix in `tests/bootstrap.php` (runs before Laravel boots, per worker):
+```php
+if ($token = getenv('TEST_TOKEN')) {
+    $base = __DIR__.'/../storage/framework/testing/worker_'.$token;
+    foreach (['views', 'cache', 'sessions'] as $sub) {
+        is_dir($base.'/'.$sub) || mkdir($base.'/'.$sub, 0755, true);
+    }
+    putenv('VIEW_COMPILED_PATH='.$base.'/views');
+    putenv('APP_SERVICES_CACHE='.$base.'/services.php');
+    putenv('APP_PACKAGES_CACHE='.$base.'/packages.php');
+}
+```
+
+### 2. Per-test Filament + Spatie Permission resets
+
+Spatie Permission has both a Laravel cache AND a static team-id — both
+must be cleared between tests. Filament's Manager singleton retains
+panel/tenant state between tests in the same worker.
+
+```php
+protected function tearDown(): void
+{
+    Livewire::flushState();
+
+    if (app()->bound(PermissionRegistrar::class)) {
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+        app(PermissionRegistrar::class)->setPermissionsTeamId(null);
+    }
+    app()->forgetInstance(PermissionRegistrar::class);
+    app()->forgetInstance('filament');
+    if (app()->bound(\Livewire\Mechanisms\ComponentRegistry::class)) {
+        app()->forgetInstance(\Livewire\Mechanisms\ComponentRegistry::class);
+    }
+
+    parent::tearDown();
+}
+```
+
+## What still doesn't fix it 100%
+
+Even with all of the above, the real codebase still hits ~1–3 failures
+in ~30% of runs. The remaining races appear to be deeper inside Filament's
+Schema-mounting and Livewire's snapshot construction — beyond reach from
+test-harness code. **That's the question to the Filament team.**
 
 ## Open questions for the Filament team
 

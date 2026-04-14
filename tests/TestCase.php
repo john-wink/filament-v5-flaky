@@ -45,6 +45,19 @@ abstract class TestCase extends BaseTestCase
     protected function tearDown(): void
     {
         Livewire::flushState();
+
+        // Per-test state resets — without these, intra-worker flakes increase.
+        // See README for the full set of mitigations applied to a real project.
+        if (app()->bound(PermissionRegistrar::class)) {
+            app(PermissionRegistrar::class)->forgetCachedPermissions();
+            app(PermissionRegistrar::class)->setPermissionsTeamId(null);
+        }
+        app()->forgetInstance(PermissionRegistrar::class);
+        app()->forgetInstance('filament');
+        if (app()->bound(\Livewire\Mechanisms\ComponentRegistry::class)) {
+            app()->forgetInstance(\Livewire\Mechanisms\ComponentRegistry::class);
+        }
+
         parent::tearDown();
     }
 }
