@@ -101,12 +101,12 @@ it('can filter table by trashed', function () {
 // ── 4. HTTP 403 / Spatie Permission race ────────────────────────────────
 
 it('admin can access widget index via HTTP', function () {
-    $this->get('/admin/'.$this->team->id.'/widgets')
+    $this->get('/admin/widgets')
         ->assertSuccessful();
 });
 
 it('admin can access create page via HTTP', function () {
-    $this->get('/admin/'.$this->team->id.'/widgets/create')
+    $this->get('/admin/widgets/create')
         ->assertSuccessful();
 });
 
@@ -185,7 +185,7 @@ it('reads filters via instance (volume)', function () {
 })->with(range(1, 200));
 
 it('hits admin index via HTTP (volume)', function () {
-    $this->get('/admin/'.$this->team->id.'/widgets')->assertSuccessful();
+    $this->get('/admin/widgets')->assertSuccessful();
 })->with(range(1, 200));
 
 it('asserts hidden-form-field absence (volume)', function () {

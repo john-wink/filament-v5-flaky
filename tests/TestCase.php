@@ -38,8 +38,12 @@ abstract class TestCase extends BaseTestCase
 
         $this->actingAs($this->admin->fresh());
 
+        // Admin-Panel ist NICHT tenant-scoped — setTenant wird hier bewusst
+        // NICHT aufgerufen. Filament-Manager behält aber internen State
+        // zwischen Tests im selben Worker. Wenn ein vorheriger Test (z.B.
+        // SupportPanel) setTenant aufgerufen hat, sieht die naechste
+        // Admin-Runde den stale Tenant — vermutete Race-Source.
         filament()->setCurrentPanel(filament()->getPanel('admin'));
-        filament()->setTenant($this->team);
     }
 
     protected function tearDown(): void

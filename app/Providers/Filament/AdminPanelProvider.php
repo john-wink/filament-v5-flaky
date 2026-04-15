@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Providers\Filament;
 
-use App\Models\Team;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -22,11 +21,12 @@ class AdminPanelProvider extends PanelProvider
 {
     public function panel(Panel $panel): Panel
     {
+        // Admin-Panel ist bewusst NICHT tenant-scoped — mirrored ys-consulting
+        // wo Admin global ist und Coach/Business panels tenant-scoped sind.
         return $panel
             ->id('admin')
             ->path('admin')
             ->login()
-            ->tenant(Team::class)
             ->discoverResources(
                 in: app_path('Filament/Admin/Resources'),
                 for: 'App\\Filament\\Admin\\Resources'
